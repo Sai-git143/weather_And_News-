@@ -1,9 +1,14 @@
 import httpx
 import time
+import logging
 from typing import List, Optional, Any
 from fastapi import HTTPException
 from app.config import settings
 from app.schemas import WeatherResponse, NewsArticle
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 class CacheService:
     def __init__(self, ttl_seconds: int = 600):
@@ -14,6 +19,7 @@ class CacheService:
         if key in self.cache:
             data, timestamp = self.cache[key]
             if time.time() - timestamp < self.ttl_seconds:
+                logger.info(f"Cache hit for key: {key}")
                 return data
             else:
                 del self.cache[key]
@@ -55,12 +61,12 @@ class WeatherService:
                 cache_service.set(cache_key, weather_data)
                 return weather_data
             except httpx.HTTPStatusError as e:
-                print(f"OpenWeatherMap Error: {e.response.status_code} - {e.response.text}")
+                logger.error(f"OpenWeatherMap API Error: {e.response.status_code} - {e.response.text}")
                 if e.response.status_code == 404:
                     raise HTTPException(status_code=404, detail=f"Weather data not found for city: {city}")
                 raise HTTPException(status_code=502, detail="Error fetching weather data")
             except Exception as e:
-                print(f"OpenWeatherMap Unexpected Error: {e}")
+                logger.error(f"OpenWeatherMap Unexpected Error: {e}")
                 raise HTTPException(status_code=500, detail=str(e))
 
 class NewsService:
@@ -100,14 +106,8 @@ class NewsService:
                 cache_service.set(cache_key, articles)
                 return articles
             except httpx.HTTPStatusError as e:
-                print(f"NewsAPI Error: {e.response.status_code} - {e.response.text}")
-                # NewsAPI handles errors differently, but 401/429 are common
-                # Return empty list on error to not block the whole dashboard? 
-                # Requirement says "Professional error handling", so ideally we should log and maybe return empty or raise.
-                # Let's raise for now as per previous logic, but maybe we should allow partial failure involved.
-                # Reverting to original logic for consistency but adding cache set.
+                logger.error(f"NewsAPI Error: {e.response.status_code} - {e.response.text}")
                 raise HTTPException(status_code=502, detail="Error fetching news data")
             except Exception as e:
-                print(f"NewsAPI Unexpected Error: {e}")
-                # Log the error in a real app
+                logger.error(f"NewsAPI Unexpected Error: {e}")
                 return []
